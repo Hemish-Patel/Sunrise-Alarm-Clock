@@ -1,0 +1,17 @@
+Web based menu for more controls of settings
+- like length of time for "sunrise"
+- the sunrise brightness curve
+- max and min brightness
+- multi alarms - alarms for each day of the week?
+- ways to turn of display - auto turn off after certain times or always on
+
+
+Potential for future imporvements:
+- maybe add extra button and feature for sunset?
+- add wireless charger dock for phone to charge - magnets for allignment too
+- with the wifi and bluetooth capability add or allow smart home features
+- wifi and bluetooth capabilities host and control other things - smart home host?
+- make the switches and or buttons programmable so you can change what they do
+- support for multi coloured bulbs
+- 24 and 12 hours time modes
+- whitenoise options too

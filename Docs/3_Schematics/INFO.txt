@@ -1,0 +1,2 @@
+Sets out top level view of software flow
+Main features, settings, and research on how to best implement the projects desired goals
