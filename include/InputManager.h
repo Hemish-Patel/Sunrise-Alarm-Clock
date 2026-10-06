@@ -77,6 +77,13 @@ public:
      */
     bool isButton2Down() const { return _btn2Pressed; }
 
+    /**
+     * @brief Checks the state of a switch.
+     * @param switchNumber The switch number (1, 2, or 3).
+     * @return true if the switch is on, false otherwise.
+     */
+    bool switchState(int switchNumber);
+
 private:
     // Static Interrupt Service Routines (ISRs stored in IRAM on ESP32)
     static void IRAM_ATTR isrEncoder1();
@@ -104,4 +111,9 @@ private:
     bool _btn2LastReading;
     uint32_t _btn2LastDebounceTime;
     bool _btn2ClickEvent;
+
+    //Swithches 
+    bool _sw1state;
+    bool _sw2state;
+    bool _sw3state;
 };

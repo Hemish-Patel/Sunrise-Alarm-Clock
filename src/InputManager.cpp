@@ -22,6 +22,13 @@
 
 #define DEBOUNCE_DELAY_MS 40 // Debounce window for tactile pushbuttons
 
+//switch 1
+#define SW1_PIN 34
+#define SW2_PIN 35
+#define SW3_PIN 39
+
+
+
 // Static member variable definitions (Encoder 1)
 volatile int InputManager::_encoder1Ticks = 0;
 volatile uint8_t InputManager::_lastClk1 = HIGH;
@@ -78,14 +85,17 @@ InputManager::InputManager()
       _btn2Pressed(false),
       _btn2LastReading(HIGH),
       _btn2LastDebounceTime(0),
-      _btn2ClickEvent(false) {
-}
+      _btn2ClickEvent(false),
+      _sw1state(false),
+      _sw2state(false),
+      _sw3state(false) {}
 
 void InputManager::init() {
     // --- Configure Rotary Encoder 1 (Time Knob) ---
     pinMode(ENC1_CLK_PIN, INPUT);
     pinMode(ENC1_DT_PIN,  INPUT);
     pinMode(ENC1_SW_PIN,  INPUT_PULLUP);
+
 
     _lastClk1 = digitalRead(ENC1_CLK_PIN);
     attachInterrupt(digitalPinToInterrupt(ENC1_CLK_PIN), isrEncoder1, CHANGE);
@@ -97,6 +107,16 @@ void InputManager::init() {
 
     _lastClk2 = digitalRead(ENC2_CLK_PIN);
     attachInterrupt(digitalPinToInterrupt(ENC2_CLK_PIN), isrEncoder2, CHANGE);
+
+    // --- Configure Switches --- ///
+    pinMode(SW1_PIN, INPUT);
+    pinMode(SW2_PIN, INPUT);
+    pinMode(SW3_PIN, INPUT);
+
+    _sw1state = digitalRead(SW1_PIN) == HIGH;
+    _sw2state = digitalRead(SW2_PIN) == HIGH;
+    _sw3state = digitalRead(SW3_PIN) == HIGH;
+
 }
 
 void InputManager::update() {
@@ -135,6 +155,14 @@ void InputManager::update() {
         }
         _btn2Pressed = reading2;
     }
+    // ------------------------------------------------------------------------
+    // Swtiches state update
+    // ------------------------------------------------------------------------
+    _sw1state = digitalRead(SW1_PIN) == HIGH;
+    _sw2state = digitalRead(SW2_PIN) == HIGH;
+    _sw3state = digitalRead(SW3_PIN) == HIGH;
+
+
 }
 
 int InputManager::getEncoder1Delta() {
@@ -173,6 +201,19 @@ bool InputManager::isButton2Clicked() {
     return false;
 }
 
+bool InputManager::switchState(int switchNumber) {
+    switch (switchNumber) {
+        case 1:
+            return _sw1state;
+        case 2:
+            return _sw2state;
+        case 3:
+            return _sw3state;
+        default:
+            return false; // Invalid switch number
+    }
+}
+
 void InputManager::clearDeltas() {
     noInterrupts();
     _lastReadTicks1 = _encoder1Ticks;
@@ -181,3 +222,5 @@ void InputManager::clearDeltas() {
     _btn2ClickEvent = false;
     interrupts();
 }
+
+
