@@ -84,6 +84,11 @@ public:
      */
     bool switchState(int switchNumber);
 
+    // Semantic helpers matching physical hardware switch mapping
+    bool isLightArmed() { return switchState(1); } // Switch 1: Light Arm (GPIO 34)
+    bool isAudioArmed() { return switchState(2); } // Switch 2: Audio Arm (GPIO 35)
+    bool isBellArmed()  { return switchState(3); } // Switch 3: Bell Arm  (GPIO 39)
+
 private:
     // Static Interrupt Service Routines (ISRs stored in IRAM on ESP32)
     static void IRAM_ATTR isrEncoder1();

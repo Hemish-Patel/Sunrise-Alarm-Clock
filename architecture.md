@@ -103,11 +103,49 @@ classDiagram
 | Subsystem | Managed Hardware | Physical UX & Operational Logic |
 | :--- | :--- | :--- |
 | **`ClockController`** | ESP32 Core | Orchestrates the system state machine (`IDLE`, `SUNRISE_ACTIVE`, `ALARM_SOUNDING`, `MANUAL_OVERRIDE`, `SETTINGS_MENU`). Polls all subsystems non-blockingly. |
-| **`TimeManager`** | DS3231 RTC Module (I2C: `0x68`) | Battery-backed high-precision timekeeping independent of mains/Wi-Fi (FR-05). Calculates sunrise start time ($T-45\text{m}$). |
-| **`LightController`** | RobotDyn TRIAC Dimmer + Philips DimTone LED | Zero-crossing phase-cut dimming. Executes the non-linear 45-minute sunrise curve. Supports manual knob dimming with **bumpless transfer** (NFR-02). |
+| **`TimeManager`** | DS3231 RTC Module (I2C: `0x68`) | Battery-backed high-precision timekeeping independent of mains/Wi-Fi (FR-05). Calculates dynamic sunrise start time ($T_{\text{alarm}} - \text{SUNRISE\_DURATION\_MINS}$ [currently set to 30m]). |
+| **`LightController`** | RobotDyn TRIAC Dimmer + Philips DimTone LED | Zero-crossing phase-cut dimming. Executes the customizable sunrise mathematical curve over `SUNRISE_DURATION_MINS` (currently 30m). Supports manual knob dimming with **override protection** (only increases brightness, never dims). |
 | **`DisplayManager`** | **Adafruit 1.2" 4-Digit 7-Segment (HT16K33 I2C: `0x70`)** | High-visibility 1.2" (30.5mm) red digits readable across a bedroom. Displays `HH:MM` with hardware colon blinking, settings menus, and 16 dimming levels (`0` to `15`) for dark bedroom comfort. |
-| **`InputManager`** | 2× Encoders + 3× Toggle Switches | **Independent Feature Arming:**<br>• **Switch 1:** Light Sunrise Sequence Arm/Disarm<br>• **Switch 2:** Audio Chimes Arm/Disarm<br>• **Switch 3:** Mechanical Bell Arm/Disarm<br>• **Knob 1 Button:** Manual reading light toggle / Time adjust<br>• **Knob 2 Button:** Menu navigate / Setting confirm |
-| **`AlarmManager`** | DFPlayer Mini (UART) + Twin-Bell Motor (MOSFET) | **Tactile Silence Logic:** Flipping Switch 3 DOWN while ringing silences the active bell alarm; flipping it back UP arms it for tomorrow's alarm without re-triggering today.<br>Flipping Switch 1 DOWN disarms future light alarms without abruptly cutting the light if already on. |
+| **`InputManager`** | 2× Encoders + 3× Toggle Switches | **Independent Feature Arming:**<br>• **Switch 1:** Light Sunrise Sequence Arm/Disarm<br>• **Switch 2:** Audio Chimes Arm/Disarm<br>• **Switch 3:** Mechanical Bell Arm/Disarm<br>• **Knob 1 (Encoder 1):** Manual light dimming (5% per click) / Time adjust<br>• **Knob 2 (Encoder 2):** Display brightness / Menu navigate |
+| **`AlarmManager`** | DFPlayer Mini (UART) + Twin-Bell Motor (MOSFET) | **Tactile Silence & Safety Logic:**<br>• **Same-Minute Toggle (`bellDismissed`):** Flipping Switch 3 DOWN silences the active bell alarm; flipping it back UP within the same minute arms it for the next alarm cycle without re-triggering. Clears upon minute rollover.<br>• **Audio Ramp & Dismissal:** Audio fades in over `AUDIO_RAMP_MINS` (currently 5m); flipping Switch 2 DOWN silences audio immediately (`audioDismissed`).<br>• **Light Hold:** Light locks at peak brightness at $T_{\text{alarm}}$; flipping Switch 1 DOWN disarms future alarms without abruptly cutting off the active room light.<br>• **Auto-Shutoff:** Both bell and audio automatically silence after `AUTO_SHUTOFF_MILLIS` (currently 5 minutes) unattended. |
+
+---
+
+### 3.1 Configurable Wake-Up Timeline & Mathematical Curves
+
+The wake-up sequence is governed by a dynamic, non-blocking timeline engine parameterized by user-editable compile-time constants in `AlarmManager.h`:
+
+| Parameter Constant | Role | Current Default Setting | Physical / Safety Constraint |
+| :--- | :--- | :--- | :--- |
+| `SUNRISE_DURATION_MINS` | Sunrise light ramp duration before alarm | `30` (minutes) | Physical lamp maximum: 100% |
+| `SUNRISE_MAX_BRIGHTNESS` | Target peak light brightness | `100` (%) | Clamped between `SUNRISE_MIN_BRIGHTNESS` (1%) and 100% |
+| `AUDIO_RAMP_MINS` | Nature/bird audio fade-in duration before alarm | `5` (minutes) | DFPlayer hardware max: 30 |
+| `AUDIO_MAX_VOLUME` | Target wake-up audio volume | `15` (level 0–30) | Keep $\le 18$ on 5V USB to prevent rail brownouts |
+| `BELL_PWM_DUTY_PERCENT` | Clapper motor PWM duty cycle | `30` (%) | Effective ~1.5V from 5V bus to protect 1.5V DC motor |
+| `AUTO_SHUTOFF_MILLIS` | Unattended alarm safety timeout | `300000` (5 minutes) | Prevents motor burnout and battery/power waste |
+
+#### Dynamic Timeline Phases:
+1. **Phase 1: Sunrise Light Ramp ($T_{\text{alarm}} - \text{SUNRISE\_DURATION\_MINS}$ [currently 30m] $\to T_{\text{alarm}}$):**
+   * Computes elapsed minutes $t \in [0, \text{SUNRISE\_DURATION\_MINS}]$.
+   * Evaluates user-customizable single mathematical curve:
+     $$\text{raw} = 0.5 \cdot e^{0.176 \cdot t}$$
+   * Output is automatically clamped to $[\text{SUNRISE\_MIN\_BRIGHTNESS}, \text{SUNRISE\_MAX\_BRIGHTNESS}]$.
+   * **Manual Brightness Protection:** If user manually dialed lamp higher via Knob 1, the curve will **never decrease** brightness ($\text{brightness} = \max(\text{current}, \text{calculated})$).
+   * **Alarm Hold:** Once $T_{\text{alarm}}$ is reached, the math curve ceases execution and the light freezes at its reached peak. Flipping Switch 1 down disarms future alarms without extinguishing the active room lamp.
+
+2. **Phase 2: Nature/Bird Audio Fade-In ($T_{\text{alarm}} - \text{AUDIO\_RAMP\_MINS}$ [currently 5m] $\to T_{\text{alarm}}$):**
+   * Computes elapsed minutes $t \in [0, \text{AUDIO\_RAMP\_MINS}]$.
+   * Evaluates user-customizable single mathematical curve:
+     $$\text{raw} = 2.0 + 2.6 \cdot t$$
+   * Output is automatically clamped to $[\text{AUDIO\_MIN\_VOLUME}, \text{AUDIO\_MAX\_VOLUME}]$.
+   * If Switch 2 is flicked down, audio stops immediately and is dismissed for the remainder of that wake cycle (`audioDismissed`).
+
+3. **Phase 3: Alarm Time Reached ($T_{\text{alarm}}$):**
+   * Mechanical twin-bell clapper motor begins cadence pulsing (2s ringing / 1s pause at `BELL_PWM_DUTY_PERCENT`).
+   * **Same-Minute Deactivation Toggle (`bellDismissed`):** Flipping Switch 3 down silences the bell immediately. Flipping it back UP within the same minute arms it for the next alarm cycle without re-triggering. The toggle automatically clears once the alarm minute rolls over so same-day alarms (e.g. afternoon naps) fire normally.
+   * **Auto-Shutoff:** If unattended for `AUTO_SHUTOFF_MILLIS` (currently 5 minutes), bell and audio shut off automatically while remaining armed for subsequent alarms.
+
+---
 
 ---
 
@@ -190,9 +228,9 @@ flowchart TD
 * If using the Raspberry Pi Mini DS3231 board with 5-pin female socket, a CR1220/CR927 coin cell or external 3V battery leads are soldered to the board's battery pads.
 
 ### 3. Bell Motor Protection & Ringing Cadence:
-* **PWM Chopping:** ESP32 `GPIO 27` PWM duty cycle restricted to **~30%–35%** (effective ~1.5V–1.7V from the 5V bus).
+* **PWM Chopping:** ESP32 `GPIO 27` PWM duty cycle restricted to **~30%–35%** via `BELL_PWM_DUTY_PERCENT` (currently set to 30%) to provide an effective ~1.5V from the 5V bus and protect the 1.5V DC motor coil.
 * **Thermal Protection:** Fast **1N5819 Schottky flyback diode** across motor terminals + **500mA PTC resettable polyfuse** (`F1`) in series with the motor coil.
-* **Firmware Cadence:** **10 seconds ringing $\rightarrow$ 2.5 seconds pause $\rightarrow$ repeat up to 5 minutes maximum timeout**.
+* **Firmware Cadence:** **2 seconds ringing $\rightarrow$ 1 second pause $\rightarrow$ repeat up to `AUTO_SHUTOFF_MILLIS` (currently 5 minutes maximum timeout)**.
 
 ### 4. Qi Wireless Phone Charger Protection & Star Topology:
 * **Star-Power Isolation:** The wireless charger connector (`J13`) is situated immediately adjacent to `J1` (5V Main Power In). Heavy inductive current ($1.0\text{ A} - 1.5\text{ A}$) loops strictly in the bottom-right corner without traversing the motherboard or entering sensitive audio/MCU grounds.
